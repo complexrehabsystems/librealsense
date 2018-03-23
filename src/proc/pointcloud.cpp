@@ -248,7 +248,7 @@ namespace librealsense
                     process_depth_frame(depth);
                 }
 
-                composite.foreach([&](const rs2::frame& f) {
+                composite.rs_foreach([&](const rs2::frame& f) {
                     if (f.get_profile().unique_id() == _other_stream_id)
                     {
                         inspect_other_frame(f);
