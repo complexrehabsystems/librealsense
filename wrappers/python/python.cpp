@@ -410,9 +410,9 @@ PYBIND11_MODULE(NAME, m) {
         .def("first_or_default", &rs2::frameset::first_or_default, "s"_a)
         .def("first", &rs2::frameset::first, "s"_a)
         .def("size", &rs2::frameset::size)
-        .def("foreach", [](const rs2::frameset& self, std::function<void(rs2::frame)> callable)
+        .def("rs_foreach", [](const rs2::frameset& self, std::function<void(rs2::frame)> callable)
     {
-        self.foreach(callable);
+        self.rs_foreach(callable);
     })
         .def("__getitem__", &rs2::frameset::operator[])
         .def("get_depth_frame", &rs2::frameset::get_depth_frame)
