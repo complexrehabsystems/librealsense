@@ -653,7 +653,7 @@ namespace rs2
         frame first_or_default(rs2_stream s) const
         {
             frame result;
-            foreach([&result, s](frame f) {
+            rs_foreach([&result, s](frame f) {
                 if (!result && f.get_profile().stream_type() == s)
                 {
                     result = std::move(f);
@@ -697,7 +697,7 @@ namespace rs2
             }
             else
             {
-                foreach([&f, index](const frame& frame) {
+                rs_foreach([&f, index](const frame& frame) {
                     if (frame.get_profile().stream_type() == RS2_STREAM_INFRARED && frame.get_profile().stream_index() == index)
                         f = frame;
                 });
@@ -711,7 +711,7 @@ namespace rs2
         }
 
         template<class T>
-        void foreach(T action) const
+        void rs_foreach(T action) const
         {
             rs2_error* e = nullptr;
             auto count = size();
