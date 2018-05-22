@@ -23,11 +23,13 @@ typedef enum rs2_camera_info {
     RS2_CAMERA_INFO_NAME                           , /**< Friendly name */
     RS2_CAMERA_INFO_SERIAL_NUMBER                  , /**< Device serial number */
     RS2_CAMERA_INFO_FIRMWARE_VERSION               , /**< Primary firmware version */
+    RS2_CAMERA_INFO_RECOMMENDED_FIRMWARE_VERSION   , /**< Recommended firmware version */
     RS2_CAMERA_INFO_PHYSICAL_PORT                  , /**< Unique identifier of the port the device is connected to (platform specific) */
     RS2_CAMERA_INFO_DEBUG_OP_CODE                  , /**< If device supports firmware logging, this is the command to send to get logs from firmware */
     RS2_CAMERA_INFO_ADVANCED_MODE                  , /**< True iff the device is in advanced mode */
     RS2_CAMERA_INFO_PRODUCT_ID                     , /**< Product ID as reported in the USB descriptor */
     RS2_CAMERA_INFO_CAMERA_LOCKED                  , /**< True iff EEPROM is locked */
+    RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR            , /**< Designated USB specification: USB2/USB3 */
     RS2_CAMERA_INFO_COUNT                            /**< Number of enumeration values. Not a valid input: intended to be used in for-loops. */
 } rs2_camera_info;
 const char* rs2_camera_info_to_string(rs2_camera_info info);
@@ -43,7 +45,8 @@ typedef enum rs2_stream
     RS2_STREAM_GYRO                             , /**< Native stream of gyroscope motion data produced by RealSense device */
     RS2_STREAM_ACCEL                            , /**< Native stream of accelerometer motion data produced by RealSense device */
     RS2_STREAM_GPIO                             , /**< Signals from external device connected through GPIO */
-    RS2_STREAM_POSE                             , /**< 6 Degrees of Freedom pose data, calculated by RealSense device */ 
+    RS2_STREAM_POSE                             , /**< 6 Degrees of Freedom pose data, calculated by RealSense device */
+    RS2_STREAM_CONFIDENCE,
     RS2_STREAM_COUNT
 } rs2_stream;
 const char* rs2_stream_to_string(rs2_stream stream);

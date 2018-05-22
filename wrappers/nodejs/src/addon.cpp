@@ -1624,6 +1624,16 @@ class RSFrameSet : public Nan::ObjectWrap {
 
     rs2_stream stream = static_cast<rs2_stream>(info[0]->IntegerValue());
     auto stream_index = info[1]->IntegerValue();
+    // if RS2_STREAM_ANY is used, we return the first frame.
+    if (stream == RS2_STREAM_ANY && me->frame_count_) {
+      rs2_frame* frame = GetNativeResult<rs2_frame*>(rs2_extract_frame,
+          &me->error_, me->frames_, 0, &me->error_);
+      if (!frame) return;
+
+      info.GetReturnValue().Set(RSFrame::NewInstance(frame));
+      return;
+    }
+
     for (uint32_t i=0; i < me->frame_count_; i++) {
       rs2_frame* frame = GetNativeResult<rs2_frame*>(rs2_extract_frame,
           &me->error_, me->frames_, i, &me->error_);
@@ -2122,9 +2132,11 @@ class RSSensor : public Nan::ObjectWrap, Options {
     auto me = Nan::ObjectWrap::Unwrap<RSSensor>(info.Holder());
     if (!me) return;
 
-    std::string value(GetNativeResult<const char*>(rs2_get_sensor_info,
+    auto value = GetNativeResult<const char*>(rs2_get_sensor_info,
         &me->error_, me->sensor_, static_cast<rs2_camera_info>(camera_info),
-        &me->error_));
+        &me->error_);
+    if (me->error_) return;
+
     info.GetReturnValue().Set(Nan::New(value).ToLocalChecked());
   }
 
@@ -2281,6 +2293,7 @@ class RSSensor : public Nan::ObjectWrap, Options {
 
     CallNativeFunc(rs2_get_region_of_interest, &me->error_, me->sensor_, &minx,
         &miny, &maxx, &maxy, &me->error_);
+    if (me->error_) return;
     info.GetReturnValue().Set(
         RSRegionOfInterest(minx, miny, maxx, maxy).GetObject());
   }
@@ -2384,12 +2397,10 @@ class RSDevice : public Nan::ObjectWrap {
     Nan::SetPrototypeMethod(tpl, "triggerErrorForTest", TriggerErrorForTest);
     Nan::SetPrototypeMethod(tpl, "spawnRecorderDevice", SpawnRecorderDevice);
 
-    // Methods for record
+    // Methods for record or playback
     Nan::SetPrototypeMethod(tpl, "pauseRecord", PauseRecord);
     Nan::SetPrototypeMethod(tpl, "resumeRecord", ResumeRecord);
     Nan::SetPrototypeMethod(tpl, "getFileName", GetFileName);
-
-    // Methods for playback
     Nan::SetPrototypeMethod(tpl, "pausePlayback", PausePlayback);
     Nan::SetPrototypeMethod(tpl, "resumePlayback", ResumePlayback);
     Nan::SetPrototypeMethod(tpl, "stopPlayback", StopPlayback);
@@ -2403,6 +2414,8 @@ class RSDevice : public Nan::ObjectWrap {
     Nan::SetPrototypeMethod(tpl, "setStatusChangedCallbackMethodName",
         SetStatusChangedCallbackMethodName);
     Nan::SetPrototypeMethod(tpl, "isTm2", IsTm2);
+    Nan::SetPrototypeMethod(tpl, "isPlayback", IsPlayback);
+    Nan::SetPrototypeMethod(tpl, "isRecorder", IsRecorder);
 
     // methods of tm2 device
     Nan::SetPrototypeMethod(tpl, "enableLoopback", EnableLoopback);
@@ -2462,9 +2475,9 @@ class RSDevice : public Nan::ObjectWrap {
     auto me = Nan::ObjectWrap::Unwrap<RSDevice>(info.Holder());
     if (!me) return;
 
-    std::string value(GetNativeResult<const char*>(rs2_get_device_info,
+    auto value = GetNativeResult<const char*>(rs2_get_device_info,
         &me->error_, me->dev_, static_cast<rs2_camera_info>(camera_info),
-        &me->error_));
+        &me->error_);
     if (me->error_) return;
 
     info.GetReturnValue().Set(Nan::New(value).ToLocalChecked());
@@ -2488,7 +2501,6 @@ class RSDevice : public Nan::ObjectWrap {
     int32_t on = GetNativeResult<int>(rs2_supports_device_info, &me->error_,
         me->dev_, (rs2_camera_info)camera_info, &me->error_);
     if (me->error_) return;
-
     info.GetReturnValue().Set(Nan::New(on ? true : false));
   }
 
@@ -2574,8 +2586,16 @@ class RSDevice : public Nan::ObjectWrap {
     info.GetReturnValue().Set(Nan::Undefined());
     if (!me) return;
 
-    auto file = GetNativeResult<const char*>(rs2_record_device_filename,
-        &me->error_, me->dev_, &me->error_);
+    const char* file = nullptr;
+    if (me->IsPlaybackInternal()) {
+      file = GetNativeResult<const char*>(rs2_playback_device_get_file_path,
+          &me->error_, me->dev_, &me->error_);
+    } else if (me->IsRecorderInternal()) {
+      file = GetNativeResult<const char*>(rs2_record_device_filename,
+          &me->error_, me->dev_, &me->error_);
+    } else {
+      return;
+    }
     if (me->error_) return;
 
     info.GetReturnValue().Set(Nan::New(file).ToLocalChecked());
@@ -2671,6 +2691,24 @@ class RSDevice : public Nan::ObjectWrap {
         me->dev_, speed, &me->error_);
   }
 
+  static NAN_METHOD(IsPlayback) {
+    auto me = Nan::ObjectWrap::Unwrap<RSDevice>(info.Holder());
+    info.GetReturnValue().Set(Nan::Undefined());
+    if (!me) return;
+
+    auto val = me->IsPlaybackInternal();
+    info.GetReturnValue().Set(val ? Nan::True() : Nan::False());
+  }
+
+  static NAN_METHOD(IsRecorder) {
+    auto me = Nan::ObjectWrap::Unwrap<RSDevice>(info.Holder());
+    info.GetReturnValue().Set(Nan::Undefined());
+    if (!me) return;
+
+    auto val = me->IsRecorderInternal();
+    info.GetReturnValue().Set(val ? Nan::True() : Nan::False());
+  }
+
   static NAN_METHOD(GetCurrentStatus) {
     auto me = Nan::ObjectWrap::Unwrap<RSDevice>(info.Holder());
     info.GetReturnValue().Set(Nan::Undefined());
@@ -2756,6 +2794,19 @@ class RSDevice : public Nan::ObjectWrap {
   }
 
  private:
+  bool IsPlaybackInternal() {
+    auto val = GetNativeResult<int>(rs2_is_device_extendable_to, &error_, dev_,
+        RS2_EXTENSION_PLAYBACK, &error_);
+
+    return (error_ || !val) ? false : true;
+  }
+
+  bool IsRecorderInternal() {
+    auto val = GetNativeResult<int>(rs2_is_device_extendable_to, &error_, dev_,
+        RS2_EXTENSION_RECORD, &error_);
+
+    return (error_ || !val) ? false : true;
+  }
   static Nan::Persistent<v8::Function> constructor_;
   rs2_device* dev_;
   rs2_error* error_;
@@ -3582,6 +3633,8 @@ class RSConfig : public Nan::ObjectWrap  {
     Nan::SetPrototypeMethod(tpl, "disableAllStreams", DisableAllStreams);
     Nan::SetPrototypeMethod(tpl, "resolve", Resolve);
     Nan::SetPrototypeMethod(tpl, "canResolve", CanResolve);
+    Nan::SetPrototypeMethod(tpl, "enableDeviceFromFileRepeatOption",
+        EnableDeviceFromFileRepeatOption);
 
     constructor_.Reset(tpl->GetFunction());
     exports->Set(Nan::New("RSConfig").ToLocalChecked(), tpl->GetFunction());
@@ -3680,6 +3733,18 @@ class RSConfig : public Nan::ObjectWrap  {
     v8::String::Utf8Value value(device_file);
     CallNativeFunc(rs2_config_enable_device_from_file, &me->error_, me->config_,
         *value, &me->error_);
+  }
+
+  static NAN_METHOD(EnableDeviceFromFileRepeatOption) {
+    info.GetReturnValue().Set(Nan::Undefined());
+    auto me = Nan::ObjectWrap::Unwrap<RSConfig>(info.Holder());
+    if (!me) return;
+
+    auto device_file = info[0]->ToString();
+    auto repeat = info[1]->BooleanValue();
+    v8::String::Utf8Value value(device_file);
+    CallNativeFunc(rs2_config_enable_device_from_file_repeat_option,
+        &me->error_, me->config_, *value, repeat, &me->error_);
   }
 
   static NAN_METHOD(EnableRecordToFile) {
@@ -4468,6 +4533,8 @@ void InitModule(v8::Local<v8::Object> exports) {
   _FORCE_SET_ENUM(RS2_STREAM_GYRO);
   _FORCE_SET_ENUM(RS2_STREAM_ACCEL);
   _FORCE_SET_ENUM(RS2_STREAM_GPIO);
+  _FORCE_SET_ENUM(RS2_STREAM_POSE);
+  _FORCE_SET_ENUM(RS2_STREAM_CONFIDENCE);
   _FORCE_SET_ENUM(RS2_STREAM_COUNT);
 
   // rs2_format
@@ -4557,6 +4624,7 @@ void InitModule(v8::Local<v8::Object> exports) {
   _FORCE_SET_ENUM(RS2_OPTION_FILTER_SMOOTH_DELTA);
   _FORCE_SET_ENUM(RS2_OPTION_HOLES_FILL);
   _FORCE_SET_ENUM(RS2_OPTION_STEREO_BASELINE);
+  _FORCE_SET_ENUM(RS2_OPTION_AUTO_EXPOSURE_CONVERGE_STEP);
   _FORCE_SET_ENUM(RS2_OPTION_COUNT);
 
   // rs2_camera_info
@@ -4568,6 +4636,8 @@ void InitModule(v8::Local<v8::Object> exports) {
   _FORCE_SET_ENUM(RS2_CAMERA_INFO_ADVANCED_MODE);
   _FORCE_SET_ENUM(RS2_CAMERA_INFO_PRODUCT_ID);
   _FORCE_SET_ENUM(RS2_CAMERA_INFO_CAMERA_LOCKED);
+  _FORCE_SET_ENUM(RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR);
+  _FORCE_SET_ENUM(RS2_CAMERA_INFO_RECOMMENDED_FIRMWARE_VERSION);
   _FORCE_SET_ENUM(RS2_CAMERA_INFO_COUNT);
 
   // rs2_log_severity
@@ -4585,6 +4655,7 @@ void InitModule(v8::Local<v8::Object> exports) {
   _FORCE_SET_ENUM(RS2_NOTIFICATION_CATEGORY_HARDWARE_ERROR);
   _FORCE_SET_ENUM(RS2_NOTIFICATION_CATEGORY_HARDWARE_EVENT);
   _FORCE_SET_ENUM(RS2_NOTIFICATION_CATEGORY_UNKNOWN_ERROR);
+  _FORCE_SET_ENUM(RS2_NOTIFICATION_CATEGORY_FIRMWARE_UPDATE_RECOMMENDED);
   _FORCE_SET_ENUM(RS2_NOTIFICATION_CATEGORY_COUNT);
 
   // rs2_timestamp_domain
